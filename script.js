@@ -75,14 +75,34 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Fonction pour vérifier si une réponse est un JSON valide
-  async function parseJSONResponse(response) {
+  async function parseJSONResponse(response, step) {
     const text = await response.text();
     try {
       return JSON.parse(text);
     } catch (e) {
-      console.error('Erreur de parsing JSON:', text);
-      throw new Error('Réponse invalide du serveur');
+      console.error(`Erreur de parsing JSON à l'étape ${step}:`, text);
+      throw new Error(`Réponse invalide du serveur à l'étape ${step}. Réponse brute: ${text}`);
     }
+  }
+
+  // Fonction pour afficher les détails de l'erreur
+  function showErrorDetails(error, step, responseData = null) {
+    const errorDetails = document.createElement('div');
+    errorDetails.className = 'error-details mt-2 text-sm';
+
+    let details = `Étape: ${step}\n`;
+    details += `Message: ${error.message}\n`;
+
+    if (error.stack) {
+      details += `Stack: ${error.stack}\n`;
+    }
+
+    if (responseData) {
+      details += `Réponse du serveur: ${JSON.stringify(responseData, null, 2)}`;
+    }
+
+    errorDetails.textContent = details;
+    return errorDetails;
   }
 
   // Gestion du bouton de génération
@@ -100,6 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
       generateBtn.classList.add('loading');
 
       // Étape 1 : Upload du fichier
+      console.log('Étape 1: Demande d\'URL d\'upload');
       const uploadResponse = await fetch('https://n8n.tools.intelligenceindustrielle.com/webhook/6852d509-086a-4415-a48c-ca72e7ceedb3', {
         method: 'POST',
         headers: {
@@ -112,14 +133,17 @@ document.addEventListener('DOMContentLoaded', () => {
         })
       });
 
-      const uploadData = await parseJSONResponse(uploadResponse);
+      const uploadData = await parseJSONResponse(uploadResponse, '1 - Demande d\'URL d\'upload');
+      console.log('Réponse étape 1:', uploadData);
+
       if (!uploadData.success || !uploadData.results?.[0]?.upload_url) {
-        throw new Error('Erreur lors de l\'upload du fichier: ' + JSON.stringify(uploadData));
+        throw new Error('Erreur lors de l\'upload du fichier');
       }
 
       const uploadUrl = uploadData.results[0].upload_url;
 
       // Étape 2 : Envoi du fichier
+      console.log('Étape 2: Upload du fichier');
       const formData = new FormData();
       formData.append('file', file);
 
@@ -128,14 +152,17 @@ document.addEventListener('DOMContentLoaded', () => {
         body: formData
       });
 
-      const fileData = await parseJSONResponse(uploadFileResponse);
+      const fileData = await parseJSONResponse(uploadFileResponse, '2 - Upload du fichier');
+      console.log('Réponse étape 2:', fileData);
+
       if (!fileData.file?.uri) {
-        throw new Error('Erreur lors de l\'envoi du fichier: ' + JSON.stringify(fileData));
+        throw new Error('Erreur lors de l\'envoi du fichier');
       }
 
       const fileUri = fileData.file.uri;
 
       // Étape 3 : Analyse avec Gemini
+      console.log('Étape 3: Analyse avec Gemini');
       const analyzeResponse = await fetch('https://n8n.tools.intelligenceindustrielle.com/webhook/6852d509-086a-4415-a48c-ca72e7ceedb3', {
         method: 'POST',
         headers: {
@@ -148,9 +175,11 @@ document.addEventListener('DOMContentLoaded', () => {
         })
       });
 
-      const analyzeData = await parseJSONResponse(analyzeResponse);
+      const analyzeData = await parseJSONResponse(analyzeResponse, '3 - Analyse avec Gemini');
+      console.log('Réponse étape 3:', analyzeData);
+
       if (!analyzeData.success || !analyzeData.results?.[0]?.gemini_response) {
-        throw new Error('Erreur lors de l\'analyse de la vidéo: ' + JSON.stringify(analyzeData));
+        throw new Error('Erreur lors de l\'analyse de la vidéo');
       }
 
       // Afficher le résultat
@@ -160,7 +189,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     } catch (error) {
       console.error('Erreur complète:', error);
-      showError(error.message || 'Une erreur est survenue lors du traitement de la vidéo.');
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error-message';
+      errorDiv.textContent = error.message;
+
+      // Ajouter les détails de l'erreur
+      const errorDetails = showErrorDetails(error, 'Traitement de la vidéo');
+      errorDiv.appendChild(errorDetails);
+
+      resultZone.classList.remove('hidden');
+      resultContent.innerHTML = '';
+      resultContent.appendChild(errorDiv);
     } finally {
       generateBtn.disabled = false;
       generateBtn.classList.remove('loading');
