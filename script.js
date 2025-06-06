@@ -54,6 +54,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (files.length > 0) {
       const file = files[0];
       if (file.type.startsWith('video/')) {
+        // Supprimer l'ancien message de fichier s'il existe
+        const oldFileName = dropZone.querySelector('p');
+        if (oldFileName) {
+          oldFileName.remove();
+        }
+
         // Afficher le nom du fichier
         const fileName = document.createElement('p');
         fileName.textContent = `Fichier sélectionné : ${file.name}`;
@@ -65,6 +71,17 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         showError('Veuillez sélectionner un fichier vidéo valide.');
       }
+    }
+  }
+
+  // Fonction pour vérifier si une réponse est un JSON valide
+  async function parseJSONResponse(response) {
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.error('Erreur de parsing JSON:', text);
+      throw new Error('Réponse invalide du serveur');
     }
   }
 
@@ -85,6 +102,9 @@ document.addEventListener('DOMContentLoaded', () => {
       // Étape 1 : Upload du fichier
       const uploadResponse = await fetch('https://n8n.tools.intelligenceindustrielle.com/webhook/6852d509-086a-4415-a48c-ca72e7ceedb3', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
           action: 'GEMINI_FILE_UPLOAD',
           fileSize: file.size,
@@ -92,9 +112,9 @@ document.addEventListener('DOMContentLoaded', () => {
         })
       });
 
-      const uploadData = await uploadResponse.json();
-      if (!uploadData.success) {
-        throw new Error('Erreur lors de l\'upload du fichier');
+      const uploadData = await parseJSONResponse(uploadResponse);
+      if (!uploadData.success || !uploadData.results?.[0]?.upload_url) {
+        throw new Error('Erreur lors de l\'upload du fichier: ' + JSON.stringify(uploadData));
       }
 
       const uploadUrl = uploadData.results[0].upload_url;
@@ -108,12 +128,19 @@ document.addEventListener('DOMContentLoaded', () => {
         body: formData
       });
 
-      const fileData = await uploadFileResponse.json();
+      const fileData = await parseJSONResponse(uploadFileResponse);
+      if (!fileData.file?.uri) {
+        throw new Error('Erreur lors de l\'envoi du fichier: ' + JSON.stringify(fileData));
+      }
+
       const fileUri = fileData.file.uri;
 
       // Étape 3 : Analyse avec Gemini
       const analyzeResponse = await fetch('https://n8n.tools.intelligenceindustrielle.com/webhook/6852d509-086a-4415-a48c-ca72e7ceedb3', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
           action: 'GEMINI_FILE_ANALYZE',
           prompt: `Analyse cette vidéo et génère un guide d'instructions détaillé. ${customInstructions}`,
@@ -121,9 +148,9 @@ document.addEventListener('DOMContentLoaded', () => {
         })
       });
 
-      const analyzeData = await analyzeResponse.json();
-      if (!analyzeData.success) {
-        throw new Error('Erreur lors de l\'analyse de la vidéo');
+      const analyzeData = await parseJSONResponse(analyzeResponse);
+      if (!analyzeData.success || !analyzeData.results?.[0]?.gemini_response) {
+        throw new Error('Erreur lors de l\'analyse de la vidéo: ' + JSON.stringify(analyzeData));
       }
 
       // Afficher le résultat
@@ -132,7 +159,8 @@ document.addEventListener('DOMContentLoaded', () => {
       showSuccess('Instructions générées avec succès !');
 
     } catch (error) {
-      showError(error.message);
+      console.error('Erreur complète:', error);
+      showError(error.message || 'Une erreur est survenue lors du traitement de la vidéo.');
     } finally {
       generateBtn.disabled = false;
       generateBtn.classList.remove('loading');
